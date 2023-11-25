@@ -3,53 +3,67 @@ from __future__ import annotations
 import os
 import re
 import smtplib
+from dataclasses import dataclass
 from datetime import datetime
 from email.mime.text import MIMEText
 from time import sleep
 from typing import Dict
 
+import bs4
+import click
 import numpy as np
 import pandas as pd
-from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from selenium import webdriver
 
-SORT_SUFFIX = "?s=16"
-ENTRY_IDENTIFIER = ["url", "title", "area_m2", "year", "room_type"]
-CSV_DATABASE_FILE = "./nepremicnine_entries.csv"
-NEPREMICNINE_URL = "https://www.nepremicnine.net/oglasi-prodaja/ljubljana-mesto/stanovanje/2.5-sobno,3-sobno,3.5-sobno,4-sobno/cena-od-220000-do-300000-eur,velikost-od-55-do-120-m2"
-GMAIL_RECEPIENTS = ["lubej.matic@gmail.com", "neza.arambasic@gmail.com"]
-DATE_COLUMN = "date"
 
 load_dotenv(override=True)
-GMAIL_SENDER = os.environ["GMAIL_SENDER"]
-GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
+_SORT_SUFFIX = "?s=16"
+_ENTRY_IDENTIFIER = ["url", "title", "area_m2", "year", "room_type"]
+_GMAIL_USERNAME = os.environ["GMAIL_USERNAME"]
+_GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
 
 
-def load_existing_database() -> pd.DataFrame:
-    return pd.read_csv(CSV_DATABASE_FILE)
+@dataclass(frozen=True)
+class EntryInfo:
+    url: str
+    title: str
+    price: float
+    area: float
+    year: int
+    floor: str | None
+    category: str
+    room_type: str
+    date_found: str
 
 
-def save_database(database: pd.DataFrame) -> None:
-    return database.sort_values(DATE_COLUMN, ascending=False).to_csv(CSV_DATABASE_FILE, index=False)
+def load_existing_database(database_path: str) -> pd.DataFrame:
+    return pd.read_csv(database_path, index_col=0)
 
 
-def entry_parser(entry) -> Dict[str, str | float]:
-    meta_info = dict(
+def save_database(database: pd.DataFrame, database_path: str) -> None:
+    return database.to_csv(database_path)
+
+
+def entry_parser(entry) -> EntryInfo:
+    area_tag = entry.select_one("img[src*=velikost]")
+    floor_tag = entry.select_one("img[src*=nadstropje]")
+
+    entry_info = EntryInfo(
         url=entry.find("a", {"class": "url-title-d"})["href"],
         title=entry.find("a", {"class": "url-title-d"})["title"].lower(),
         price=float(entry.find("meta", {"itemprop": "price"})["content"]),
-        **dict(zip(["area_m2", "year", "floor"], [item.text for item in entry.find_all("li")])),
+        area=float(re.search("[\d,]+", area_tag.parent.text).group().replace(",", ".")),
+        year=int(entry.select_one("img[src*=leto]").parent.text),
+        floor=floor_tag.parent.text if floor_tag is not None else "Ni podatka",
+        date_found=datetime.now().date().isoformat(),
         category=re.search("Prodaja: (\w+)", str(entry)).group(1).lower(),
         room_type=re.search("[\d,]+-sobno", str(entry)).group(),
     )
-    meta_info[DATE_COLUMN] = datetime.now().date().isoformat()
-    meta_info["area_m2"] = float(re.search("[\d,]+", meta_info["area_m2"]).group().replace(",", "."))
-    meta_info["year"] = int(re.search("[\d]+", meta_info["year"]).group())
-    return meta_info
+    return entry_info
 
 
-def get_entries_from_url(url: str) -> None:
+def get_entries_from_url(url: str) -> list[EntryInfo]:
     # set a headless driver
     chrome_options = webdriver.ChromeOptions()
     chrome_options.add_argument("--headless")
@@ -67,12 +81,12 @@ def get_entries_from_url(url: str) -> None:
     driver.get(url)
 
     # parse ads
-    soup_entries = BeautifulSoup(driver.page_source, "lxml").find_all("div", {"class": "property-details"})
-    return [entry_parser(entry) for entry in soup_entries]
+    soup_entries = bs4.BeautifulSoup(driver.page_source, "lxml").find_all("div", {"class": "property-details"})
+    return [entry_parser(entry) for entry in soup_entries if entry is not None]
 
 
-def init_db() -> None:
-    if os.path.exists(CSV_DATABASE_FILE):
+def init_db(base_url: str, database_path: str) -> None:
+    if os.path.exists(database_path):
         print("Loading database ...")
         return
 
@@ -84,7 +98,7 @@ def init_db() -> None:
         sleep(np.random.randint(10, 19) / 10)
 
         print(f"Parsing page: {page_idx}", end=" ... ")
-        parsed = get_entries_from_url(f"{NEPREMICNINE_URL}/{page_idx}/{SORT_SUFFIX}")
+        parsed = get_entries_from_url(f"{base_url}/{page_idx}/{_SORT_SUFFIX}")
         print(f"[Found {len(parsed)} ads]")
 
         entries.extend(parsed)
@@ -98,9 +112,9 @@ def init_db() -> None:
     save_database(entries_csv)
 
 
-def get_new_entries(existing_database: pd.DataFrame) -> pd.DataFrame:
+def get_new_entries(base_url: str, existing_database: pd.DataFrame) -> pd.DataFrame:
     entries_list = []
-    database_indices = existing_database.set_index(ENTRY_IDENTIFIER).index
+    database_indices = existing_database.set_index(_ENTRY_IDENTIFIER).index
     print("Searching for new entries")
 
     page_idx = 1
@@ -108,9 +122,9 @@ def get_new_entries(existing_database: pd.DataFrame) -> pd.DataFrame:
         sleep(np.random.randint(10, 19) / 10)
 
         print(f"Parsing page: {page_idx}", end=" ... ")
-        parsed_entries = get_entries_from_url(f"{NEPREMICNINE_URL}/{page_idx}/{SORT_SUFFIX}")
+        parsed_entries = get_entries_from_url(f"{base_url}/{page_idx}/{_SORT_SUFFIX}")
 
-        parsed_indices = pd.DataFrame(parsed_entries).set_index(ENTRY_IDENTIFIER).index
+        parsed_indices = pd.DataFrame(parsed_entries).set_index(_ENTRY_IDENTIFIER).index
         parsed_entry_mask = parsed_indices.isin(database_indices)
         print(f"[Found {np.count_nonzero(~parsed_entry_mask)} NEW ads]")
 
@@ -122,12 +136,12 @@ def get_new_entries(existing_database: pd.DataFrame) -> pd.DataFrame:
             break
 
     all_parsed_entries = pd.DataFrame(entries_list)
-    all_parsed_entries_indices = all_parsed_entries.set_index(ENTRY_IDENTIFIER).index
+    all_parsed_entries_indices = all_parsed_entries.set_index(_ENTRY_IDENTIFIER).index
     new_entry_mask = ~all_parsed_entries_indices.isin(database_indices)
     return all_parsed_entries[new_entry_mask]
 
 
-def send_email(entry: Dict):
+def send_email(entry: Dict[str, str | float], recepients: list[str]):
     subject = f'Nova nepremičnina: {entry["category"]}, {entry["room_type"]}: {entry["title"]}, {entry["area_m2"]} m2'
 
     content = [
@@ -143,16 +157,30 @@ def send_email(entry: Dict):
 
     msg = MIMEText(body)
     msg["Subject"] = subject
-    msg["From"] = GMAIL_SENDER
-    msg["To"] = ", ".join(GMAIL_RECEPIENTS)
+    msg["From"] = _GMAIL_USERNAME
+    msg["To"] = ", ".join(recepients)
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp_server:
-        smtp_server.login(GMAIL_SENDER, GMAIL_PASSWORD)
-        smtp_server.sendmail(GMAIL_SENDER, GMAIL_RECEPIENTS, msg.as_string())
+        smtp_server.login(_GMAIL_USERNAME, _GMAIL_PASSWORD)
+        smtp_server.sendmail(_GMAIL_USERNAME, recepients, msg.as_string())
 
 
-def append_and_alert_for_new_entries() -> None:
-    database = load_existing_database()
-    new_entries = get_new_entries(database)
+@click.command()
+@click.option("--url", "-u", required=True, type=str, help="Base URL with the search criteria.")
+@click.option("--out_path", "-o", type=str, default="./nepremicnine_entries.csv", help="Name of the database file.")
+@click.option(
+    "--recepient",
+    "-r",
+    required=True,
+    multiple=True,
+    help="Email of the recepient. Provide each recepient separately.",
+)
+def main(url: str, out_path: str, recepient: list[str]) -> None:
+    if not os.path.exists(out_path):
+        init_db(url, out_path)
+        return
+
+    database = load_existing_database(out_path)
+    new_entries = get_new_entries(url, database)
 
     if len(new_entries) == 0:
         print("No new entries found")
@@ -163,9 +191,9 @@ def append_and_alert_for_new_entries() -> None:
         send_email(entry.to_dict())
 
     print("Updating database")
-    save_database(pd.concat([database, new_entries]).reset_index(drop=True))
+    updated_database = pd.concat([database, new_entries]).reset_index(drop=True)
+    save_database(updated_database, out_path)
 
 
 if __name__ == "__main__":
-    init_db()
-    append_and_alert_for_new_entries()
+    main()

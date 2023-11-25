@@ -58,4 +58,4 @@ Options:
 
 #### Specific querying
 
-Simply include any search criteria of interest in the URL, e.g. "https://www.nepremicnine.net/oglasi-prodaja/ljubljana-mesto/stanovanje/3-sobno/cena-od-100000-do-300000-eur,velikost-od-50-do-100-m2/"
+Simply include any search criteria of interest in the URL, e.g. https://www.nepremicnine.net/oglasi-prodaja/ljubljana-mesto/stanovanje/3-sobno/cena-od-100000-do-300000-eur,velikost-od-50-do-100-m2/

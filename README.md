@@ -2,6 +2,8 @@
 
 Simple bot which sends an email when a new ad on is posted on [nepremicnine.net](https://www.nepremicnine.net/).
 
+**The code is focused on buying flats. Might need some custom updates for querrying houses or looking for a place to rent.**
+
 ## Prerequisites
 
 ### chromedriver
@@ -30,6 +32,22 @@ Sending via gmail will not work with your standard password, you have to generat
 
 ## How to run
 
+### Quick example
+
+Run a similar example as below. The first run will trigger a database fill. All later runs check the new entries agains the existing ones and send an email if a new ad is posted.
+
+```bash
+$ python nepremicnine_alert.py \
+    --url "https://www.nepremicnine.net/oglasi-prodaja/ljubljana-mesto/stanovanje/3-sobno/cena-od-200000-do-300000-eur,velikost-od-50-do-100-m2" \
+    --out_path "./nepremicnine_entries.csv" \
+    --recepient "recepient1@gmail.com" \
+    --recepient "recepient2@gmail.com"
+```
+
+Works best run as a [cron job](https://en.wikipedia.org/wiki/Cron).
+
+### More details
+
 ```
 Options:
   -u, --url TEXT        Base URL with the search criteria.  [required]
@@ -38,12 +56,6 @@ Options:
   --help                Show this message and exit.
 ```
 
-When everything is installed, simply run the `nepremicnine_alert.py` script with the appropriate arguments.
-
-### Specific querying
+#### Specific querying
 
 Simply include any search criteria of interest in the URL, e.g. "https://www.nepremicnine.net/oglasi-prodaja/ljubljana-mesto/stanovanje/3-sobno/cena-od-100000-do-300000-eur,velikost-od-50-do-100-m2/"
-
-The first run will trigger a database fill. All later runs check the new entries agains the existing ones and send an email if a new ad is posted.
-
-Works best run as a [cron job](https://en.wikipedia.org/wiki/Cron).

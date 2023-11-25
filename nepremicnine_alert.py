@@ -3,11 +3,10 @@ from __future__ import annotations
 import os
 import re
 import smtplib
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from email.mime.text import MIMEText
 from time import sleep
-from typing import Dict
 
 import bs4
 import click
@@ -28,13 +27,13 @@ _GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
 class EntryInfo:
     url: str
     title: str
-    price: float
-    area: float
-    year: int
-    floor: str | None
-    category: str
+    description: str
+    price: str
+    area: str
     room_type: str
     date_found: str
+    year: str
+    floor: str
 
 
 def load_existing_database(database_path: str) -> pd.DataFrame:
@@ -48,19 +47,24 @@ def save_database(database: pd.DataFrame, database_path: str) -> None:
 def entry_parser(entry) -> EntryInfo:
     area_tag = entry.select_one("img[src*=velikost]")
     floor_tag = entry.select_one("img[src*=nadstropje]")
+    year_tag = entry.select_one("img[src*=leto]")
+
+    description = entry.find("span", {"class": "font-roboto"}).contents[0].strip("\n").strip().strip(",")
+    types = entry.find("span", {"class": "font-roboto"}).find("span", {"class": "tipi"}).text.strip().strip(",")
+    full_description = ", ".join([description, types])
 
     entry_info = EntryInfo(
         url=entry.find("a", {"class": "url-title-d"})["href"],
         title=entry.find("a", {"class": "url-title-d"})["title"].lower(),
-        price=float(entry.find("meta", {"itemprop": "price"})["content"]),
-        area=float(re.search("[\d,]+", area_tag.parent.text).group().replace(",", ".")),
-        year=int(entry.select_one("img[src*=leto]").parent.text),
+        description=full_description,
+        price=entry.find("meta", {"itemprop": "price"})["content"].replace(",", "."),
+        area=area_tag.parent.text if area_tag else "Ni podatka",
+        year=year_tag.parent.text if year_tag is not None else "Ni podatka",
         floor=floor_tag.parent.text if floor_tag is not None else "Ni podatka",
         date_found=datetime.now().date().isoformat(),
-        category=re.search("Prodaja: (\w+)", str(entry)).group(1).lower(),
         room_type=re.search("[\d,]+-sobno", str(entry)).group(),
     )
-    return entry_info
+    return asdict(entry_info)
 
 
 def get_entries_from_url(url: str) -> list[EntryInfo]:
@@ -82,7 +86,7 @@ def get_entries_from_url(url: str) -> list[EntryInfo]:
 
     # parse ads
     soup_entries = bs4.BeautifulSoup(driver.page_source, "lxml").find_all("div", {"class": "property-details"})
-    return [entry_parser(entry) for entry in soup_entries if entry is not None]
+    return [entry_parser(entry) for entry in soup_entries]
 
 
 def init_db(base_url: str, database_path: str) -> None:
@@ -135,17 +139,18 @@ def get_new_entries(base_url: str, existing_database: pd.DataFrame) -> pd.DataFr
     return all_parsed_entries[new_entry_mask]
 
 
-def send_email(entry: Dict[str, str | float], recepients: list[str]):
-    subject = f'Nova nepremičnina: {entry["category"]}, {entry["room_type"]}: {entry["title"]}, {entry["area_m2"]} m2'
+def send_email(entry: EntryInfo, recepients: list[str]):
+    subject = f"Nov oglas: {entry.description}: {entry.title}, {entry.area}"
 
     content = [
-        f'Naslov oglasa: {entry["title"]}',
-        f'Cena nepremičnine: {int(entry["price"])} EUR',
-        f'Površina: {entry["area_m2"]} m2',
-        f'Število sob: {entry["room_type"]}',
-        f'Leto: {entry["year"]}',
-        f'Nadstropje: {entry["floor"]}',
-        f'Povezava: {entry["url"]}',
+        f"Naslov: {entry.title}",
+        f"Opis: {entry.description}",
+        f"Cena: {entry.price} EUR",
+        f"Površina: {entry.area} m2",
+        f"Število sob: {entry.room_type}",
+        f"Leto: {entry.year}",
+        f"Nadstropje: {entry.floor}",
+        f"Povezava: {entry.url}",
     ]
     body = "\n".join(content)
 
@@ -169,6 +174,9 @@ def send_email(entry: Dict[str, str | float], recepients: list[str]):
     help="Email of the recepient. Provide each recepient separately.",
 )
 def main(url: str, out_path: str, recepient: list[str]) -> None:
+    if url.endswith("/"):
+        url = url.strip("/")
+
     if not os.path.exists(out_path):
         print("Initial fill of database")
         init_db(url, out_path)
@@ -184,7 +192,7 @@ def main(url: str, out_path: str, recepient: list[str]) -> None:
 
     print("Alerting for new entries")
     for _, entry in new_entries.iterrows():
-        send_email(entry.to_dict())
+        send_email(entry.to_dict(), recepient)
 
     print("Updating database")
     updated_database = pd.concat([database, new_entries]).reset_index(drop=True)

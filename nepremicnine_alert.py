@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import re
 import smtplib
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime
 from email.mime.text import MIMEText
 from time import sleep
+from typing import Dict, get_type_hints
 
 import bs4
 import click
@@ -14,7 +15,6 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from selenium import webdriver
-
 
 load_dotenv(override=True)
 _SORT_SUFFIX = "?s=16"
@@ -37,7 +37,7 @@ class EntryInfo:
 
 
 def load_existing_database(database_path: str) -> pd.DataFrame:
-    return pd.read_csv(database_path, index_col=0)
+    return pd.read_csv(database_path, index_col=0).astype(get_type_hints(EntryInfo))
 
 
 def save_database(database: pd.DataFrame, database_path: str) -> None:
@@ -64,7 +64,7 @@ def entry_parser(entry) -> EntryInfo:
         date_found=datetime.now().date().isoformat(),
         room_type=re.search("[\d,]+-sobno", str(entry)).group(),
     )
-    return asdict(entry_info)
+    return entry_info
 
 
 def get_entries_from_url(url: str) -> list[EntryInfo]:
@@ -139,7 +139,8 @@ def get_new_entries(base_url: str, existing_database: pd.DataFrame) -> pd.DataFr
     return all_parsed_entries[new_entry_mask]
 
 
-def send_email(entry: EntryInfo, recepients: list[str]):
+def send_email(entry_dict: Dict, recepients: list[str]):
+    entry = EntryInfo(**entry_dict)
     subject = f"Nov oglas: {entry.description}: {entry.title}, {entry.area}"
 
     content = [
@@ -195,7 +196,7 @@ def main(url: str, out_path: str, recepient: list[str]) -> None:
         send_email(entry.to_dict(), recepient)
 
     print("Updating database")
-    updated_database = pd.concat([database, new_entries]).reset_index(drop=True)
+    updated_database = pd.concat([new_entries, database]).reset_index(drop=True)
     save_database(updated_database, out_path)
 
 

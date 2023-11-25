@@ -23,7 +23,10 @@ This package uses the `.env` file to read the gmail username and password. Set t
 ```
 GMAIL_USERNAME=name.surname@gmail.com
 GMAIL_PASSWORD=<your-app-password-here>
+
 ```
+
+Sending via gmail will not work with your standard password, you have to generate an application-specific password in your account. More info [here](https://support.google.com/mail/answer/185833?hl=en).
 
 ## How to run
 

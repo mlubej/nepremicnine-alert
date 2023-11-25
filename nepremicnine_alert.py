@@ -19,7 +19,7 @@ from selenium import webdriver
 
 load_dotenv(override=True)
 _SORT_SUFFIX = "?s=16"
-_ENTRY_IDENTIFIER = ["url", "title", "area_m2", "year", "room_type"]
+_ENTRY_IDENTIFIER = ["url", "title", "area", "year", "room_type"]
 _GMAIL_USERNAME = os.environ["GMAIL_USERNAME"]
 _GMAIL_PASSWORD = os.environ["GMAIL_PASSWORD"]
 
@@ -86,13 +86,7 @@ def get_entries_from_url(url: str) -> list[EntryInfo]:
 
 
 def init_db(base_url: str, database_path: str) -> None:
-    if os.path.exists(database_path):
-        print("Loading database ...")
-        return
-
     entries = []
-    print("Initial fill of database")
-
     page_idx = 1
     while True:
         sleep(np.random.randint(10, 19) / 10)
@@ -109,7 +103,7 @@ def init_db(base_url: str, database_path: str) -> None:
             break
 
     entries_csv = pd.DataFrame(entries)
-    save_database(entries_csv)
+    save_database(entries_csv, database_path)
 
 
 def get_new_entries(base_url: str, existing_database: pd.DataFrame) -> pd.DataFrame:
@@ -176,9 +170,11 @@ def send_email(entry: Dict[str, str | float], recepients: list[str]):
 )
 def main(url: str, out_path: str, recepient: list[str]) -> None:
     if not os.path.exists(out_path):
+        print("Initial fill of database")
         init_db(url, out_path)
         return
 
+    print("Loading database ...")
     database = load_existing_database(out_path)
     new_entries = get_new_entries(url, database)
 

@@ -53,6 +53,11 @@ def entry_parser(entry) -> EntryInfo:
     types = entry.find("span", {"class": "font-roboto"}).find("span", {"class": "tipi"}).text.strip().strip(",")
     full_description = ", ".join([description, types])
 
+    room_type = "Ni podatka"
+    room_type_match = re.search(r"([\d][\d\w\s,\.]+sobno)", full_description)
+    if room_type_match:
+        room_type = room_type_match.group(1)
+
     entry_info = EntryInfo(
         url=entry.find("a", {"class": "url-title-d"})["href"],
         title=entry.find("a", {"class": "url-title-d"})["title"].lower(),
@@ -61,8 +66,8 @@ def entry_parser(entry) -> EntryInfo:
         area=area_tag.parent.text if area_tag else "Ni podatka",
         year=year_tag.parent.text if year_tag is not None else "Ni podatka",
         floor=floor_tag.parent.text if floor_tag is not None else "Ni podatka",
-        date_found=datetime.now().date().isoformat(),
-        room_type=re.search("[\d,]+-sobno", str(entry)).group(),
+        date_found=datetime.now().isoformat(),
+        room_type=room_type,
     )
     return entry_info
 
@@ -73,9 +78,7 @@ def get_entries_from_url(url: str) -> list[EntryInfo]:
     chrome_options.add_argument("--headless")
 
     # set the user-agent back to chrome.
-    user_agent = (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36"
-    )
+    user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.50 Safari/537.36"
     chrome_options.add_argument(f"user-agent={user_agent}")
 
     driver = webdriver.Chrome(options=chrome_options)
@@ -85,7 +88,9 @@ def get_entries_from_url(url: str) -> list[EntryInfo]:
     driver.get(url)
 
     # parse ads
-    soup_entries = bs4.BeautifulSoup(driver.page_source, "lxml").find_all("div", {"class": "property-details"})
+    soup_entries = bs4.BeautifulSoup(driver.page_source, "lxml").find_all(
+        "div", {"class": "property-details"}
+    )
     return [entry_parser(entry) for entry in soup_entries]
 
 
@@ -165,8 +170,16 @@ def send_email(entry_dict: Dict, recepients: list[str]):
 
 
 @click.command()
-@click.option("--url", "-u", required=True, type=str, help="Base URL with the search criteria.")
-@click.option("--out_path", "-o", type=str, default="./nepremicnine_entries.csv", help="Name of the database file.")
+@click.option(
+    "--url", "-u", required=True, type=str, help="Base URL with the search criteria."
+)
+@click.option(
+    "--out_path",
+    "-o",
+    type=str,
+    default="./nepremicnine_entries.csv",
+    help="Name of the database file.",
+)
 @click.option(
     "--recepient",
     "-r",
@@ -175,6 +188,7 @@ def send_email(entry_dict: Dict, recepients: list[str]):
     help="Email of the recepient. Provide each recepient separately.",
 )
 def main(url: str, out_path: str, recepient: list[str]) -> None:
+    print(f"Starting new run: {datetime.now()}")
     if url.endswith("/"):
         url = url.strip("/")
 

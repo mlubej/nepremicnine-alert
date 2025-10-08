@@ -126,6 +126,9 @@ def get_new_entries(base_url: str, existing_database: pd.DataFrame) -> pd.DataFr
 
         print(f"Parsing page: {page_idx}", end=" ... ")
         parsed_entries = get_entries_from_url(f"{base_url}/{page_idx}/{_SORT_SUFFIX}")
+        if not parsed_entries:
+            print("  Search complete.")
+            break
 
         parsed_indices = pd.DataFrame(parsed_entries).set_index(_ENTRY_IDENTIFIER).index
         parsed_entry_mask = parsed_indices.isin(database_indices)
